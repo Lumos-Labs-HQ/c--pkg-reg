@@ -1,0 +1,10 @@
+scripts = []
+
+[package]
+name = "unnamed"
+version = "0.1.0"
+
+[[dependencies]]
+name = "fmt"
+version = "*"
+global = false
