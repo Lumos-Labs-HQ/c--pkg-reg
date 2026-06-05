@@ -11,14 +11,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Scaffold a new cpkg.toml
     Init {
         #[arg(default_value = ".")]
         path: String,
     },
-    /// Detect and list available C++ compilers
     Compilers,
-    /// Install a dependency
     Install {
         package: String,
         #[arg(long)]
@@ -26,16 +23,13 @@ pub enum Command {
         #[arg(long)]
         version: Option<String>,
     },
-    /// Remove a dependency
     Remove {
         package: String,
     },
-    /// Run a named script from cpkg.toml
     Run {
         script: String,
         #[arg(last = true)]
         args: Vec<String>,
     },
-    /// Run the default "build" script
     Build,
 }

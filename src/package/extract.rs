@@ -13,7 +13,6 @@ pub fn extract_tarball(tarball: &Path, dest: &Path) -> CpkgResult<()> {
     let decoder = GzDecoder::new(file);
     let mut archive = Archive::new(decoder);
 
-    // Create a temp dir first, then move after successful extraction
     let tmp_dest = dest.with_extension("tmp");
     if tmp_dest.exists() {
         fs::remove_dir_all(&tmp_dest)?;
@@ -23,8 +22,6 @@ pub fn extract_tarball(tarball: &Path, dest: &Path) -> CpkgResult<()> {
         .unpack(&tmp_dest)
         .map_err(|e| CpkgError::ExtractionError(e.to_string()))?;
 
-    // Handle tarballs that unpack into a single top-level directory
-    // e.g., fmt-9.0.0.tar.gz → fmt-9.0.0/ → strip one level
     let entries: Vec<_> = fs::read_dir(&tmp_dest)?
         .filter_map(|e| e.ok())
         .collect();
@@ -37,7 +34,6 @@ pub fn extract_tarball(tarball: &Path, dest: &Path) -> CpkgResult<()> {
         fs::rename(&inner, dest)?;
         fs::remove_dir_all(&tmp_dest)?;
     } else {
-        // No single top-level dir — rename as-is
         if dest.exists() {
             fs::remove_dir_all(dest)?;
         }

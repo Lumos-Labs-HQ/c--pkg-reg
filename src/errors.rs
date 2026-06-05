@@ -3,7 +3,6 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 #[allow(dead_code)]
 pub enum CpkgError {
-    // Compiler
     #[error("no supported C++ compiler found on PATH")]
     NoCompilerFound,
 
@@ -13,7 +12,6 @@ pub enum CpkgError {
     #[error("compiler '{0}' not found")]
     CompilerNotFound(String),
 
-    // Config / IO
     #[error("cpkg.toml not found in: {0}")]
     ConfigNotFound(String),
 
@@ -26,14 +24,12 @@ pub enum CpkgError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    // Resolution
     #[error("circular dependency detected: {0}")]
     CircularDependency(String),
 
     #[error("cannot resolve dependency '{0}' with constraint '{1}'")]
     VersionResolutionFailed(String, String),
 
-    // Package
     #[error("download failed ({0}): {1}")]
     DownloadError(String, String),
 
@@ -49,14 +45,12 @@ pub enum CpkgError {
     #[error("package '{0}' not found in registry")]
     PackageNotFound(String),
 
-    // Script
     #[error("script '{0}' not found in cpkg.toml")]
     ScriptNotFound(String),
 
     #[error("script '{0}' exited with code {1}")]
     ScriptFailed(String, i32),
 
-    // General
     #[error("{0}")]
     General(String),
 }

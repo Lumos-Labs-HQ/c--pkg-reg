@@ -1,7 +1,7 @@
 # cpkg — A Package Manager for C/C++
 
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Packages](https://img.shields.io/badge/packages-2831%20via%20vcpkg%20catalog-green.svg)](https://vcpkg.io)
 
 `cpkg` is what npm is for Node — but for C and C++. One command to install any library, a local `.cpkg/` directory that keeps your project self-contained, and a `cpkg.toml` that tracks everything.
@@ -197,15 +197,6 @@ Benchmarked on a typical broadband connection, installing `yyjson` (1.6 MB tarba
 - cpkg symlinks headers directly — for header-only libs (fmt, eigen, nlohmann, magic_enum, …) there's nothing to compile at all
 - For compiled libs, cpkg only runs cmake configure + build once, then symlinks the `.a`
 
-Phase breakdown for a cold install:
-
-| Phase | Time |
-|---|---|
-| vcpkg catalog fetch | ~3.5s (first run only) |
-| GitHub tags API | ~0.2s |
-| Tarball download | ~3–5s (network) |
-| Extract + cmake | ~0.3s |
-
 ---
 
 ## How Install Works
@@ -261,5 +252,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for project structure, how the resolver
 
 ## License
 
+## License
 
-MIT OR Apache-2.0
+MIT — see [LICENSE](./LICENSE)

@@ -5,32 +5,23 @@ use which::which;
 
 #[cfg(target_family = "unix")]
 const CANDIDATES: &[(&str, fn() -> CompilerName)] = &[
-    ("g++",      || CompilerName::Gcc),
-    ("clang++",  || CompilerName::Clang),
+    ("g++",     || CompilerName::Gcc),
+    ("clang++", || CompilerName::Clang),
 ];
 
 #[cfg(target_family = "windows")]
 const CANDIDATES: &[(&str, fn() -> CompilerName)] = &[
-    ("cl.exe",     || CompilerName::Msvc),
-    ("g++.exe",    || CompilerName::Gcc),
-    ("clang++.exe",|| CompilerName::Clang),
+    ("cl.exe",      || CompilerName::Msvc),
+    ("g++.exe",     || CompilerName::Gcc),
+    ("clang++.exe", || CompilerName::Clang),
 ];
 
 pub fn detect_all() -> CpkgResult<Vec<Compiler>> {
     let mut found = Vec::new();
     for (binary, name_fn) in CANDIDATES {
         if let Ok(path) = which(binary) {
-            match query_version(&path) {
-                Ok(version) => {
-                    found.push(Compiler {
-                        name: name_fn(),
-                        path,
-                        version,
-                    });
-                }
-                Err(_) => {
-                    // Compiler found but version couldn't be parsed — skip it
-                }
+            if let Ok(version) = query_version(&path) {
+                found.push(Compiler { name: name_fn(), path, version });
             }
         }
     }
@@ -55,18 +46,17 @@ fn query_version(path: &std::path::Path) -> CpkgResult<crate::types::CompilerVer
         .output()
         .map_err(|e| crate::errors::CpkgError::VersionParseError(e.to_string()))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{} {}", stdout, stderr);
-
+    let combined = format!(
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     parse_version_string(&combined)
 }
 
 fn parse_version_string(raw: &str) -> CpkgResult<crate::types::CompilerVersion> {
     use regex::Regex;
-    let re = Regex::new(r"(\d+)\.(\d+)\.(\d+)")
-        .expect("hardcoded regex should be valid");
-
+    let re = Regex::new(r"(\d+)\.(\d+)\.(\d+)").expect("hardcoded regex should be valid");
     let caps = re.captures(raw)
         .ok_or_else(|| crate::errors::CpkgError::VersionParseError(raw.to_string()))?;
 

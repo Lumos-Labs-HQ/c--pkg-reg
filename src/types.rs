@@ -2,8 +2,6 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-// ─── Compiler ───────────────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Compiler {
     pub name: CompilerName,
@@ -44,8 +42,6 @@ impl std::fmt::Display for CompilerVersion {
     }
 }
 
-// ─── C++ Standard ───────────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CppStandard {
     #[serde(rename = "c++11")]
@@ -59,8 +55,6 @@ pub enum CppStandard {
     #[serde(rename = "c++23")]
     Cpp23,
 }
-
-// ─── cpkg.toml Schema ───────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpkgToml {
@@ -106,8 +100,6 @@ pub struct ScriptDef {
     pub command: String,
 }
 
-// ─── cpkg.lock Schema ───────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpkgLock {
     pub metadata: LockMetadata,
@@ -133,8 +125,6 @@ pub struct LockedPackage {
     pub lib_files: Vec<String>,
     pub lib_dir: Option<String>,
 }
-
-// ─── Internal Enums ─────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]

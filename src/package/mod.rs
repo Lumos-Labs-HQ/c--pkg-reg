@@ -20,15 +20,12 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
         global,
     };
 
-    // Resolve version
     let resolved = crate::config::resolver::resolve_dependencies(&[dep], None)?;
     let pkg = resolved
         .first()
         .ok_or(crate::errors::CpkgError::PackageNotFound(name.to_string()))?;
 
     let version_str = pkg.version.to_string();
-
-    // Construct download URL (try v-prefixed and bare tag formats)
     let urls = package_download_urls(pkg);
     let tarball = layout.cache_dir().join(format!("{}-{}.tar.gz", name, &version_str));
 
@@ -47,24 +44,19 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
         ));
     }
 
-    // Verify checksum (if available)
     if let Some(ref expected_hash) = pkg.sha256 {
         verify::verify_single(&tarball, expected_hash)?;
     }
 
-    // Extract
     let install_dir = layout.package_install_dir(name, &version_str);
     if !install_dir.exists() {
         extract::extract_tarball(&tarball, &install_dir)?;
     }
 
-    // Build the package (non-fatal — header-only libs don't need it)
     if let Err(e) = build::build_package(&install_dir) {
         log::warn!("Build skipped: {}", e);
     }
 
-    // Link includes — symlink each subdir inside include/ directly into .cpkg/include/
-    // so `#include <nlohmann/json.hpp>` works, not `#include <nlohmann-json/nlohmann/json.hpp>`
     let strategy = paths::link_strategy();
     if let Some(src) = find_include_dir(&install_dir) {
         link_include_tree(&src, &layout.include_dir(), name, strategy)?;
@@ -72,7 +64,6 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
         log::warn!("No headers found in {}", install_dir.display());
     }
 
-    // Link libraries — check pkg.lib_dir hint first, then auto-detect build output
     let lib_src = pkg.lib_dir.as_ref()
         .map(|d| install_dir.join(d))
         .filter(|p| p.exists())
@@ -82,29 +73,20 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
         link::link_libraries(&lib_dir, &layout.lib_dir(), strategy)?;
     }
 
-    // Update cpkg.toml (local only)
     if !global {
         update_config(name, version_constraint)?;
     }
 
-    // Update cpkg.lock
     update_lockfile(name, pkg, global)?;
 
-    println!(
-        "Installed {} v{} ({})",
-        name,
-        version_str,
-        if global { "global" } else { "local" }
-    );
+    println!("Installed {} v{} ({})", name, version_str, if global { "global" } else { "local" });
     Ok(())
 }
 
 pub fn uninstall(name: &str) -> CpkgResult<()> {
-    // Load config
     let config_path = project::find_config_path(".")?;
     let mut config = project::load_config(&config_path)?;
 
-    // Remove from dependencies
     let before = config.dependencies.len();
     config.dependencies.retain(|d| d.name != name);
     if config.dependencies.len() == before {
@@ -114,7 +96,6 @@ pub fn uninstall(name: &str) -> CpkgResult<()> {
 
     project::save_config(&config_path, &config)?;
 
-    // Remove from .cpkg/
     let layout = CpkgLayout::local(".");
     let include_dst = layout.include_dir().join(name);
     if include_dst.exists() {
@@ -133,7 +114,6 @@ fn update_config(name: &str, version: &str) -> CpkgResult<()> {
     let config_path = project::find_config_path(".")?;
     let mut config = project::load_config(&config_path)?;
 
-    // Replace or add dependency
     config.dependencies.retain(|d| d.name != name);
     config.dependencies.push(Dependency {
         name: name.to_string(),
@@ -153,7 +133,7 @@ fn update_lockfile(name: &str, pkg: &LockedPackage, global: bool) -> CpkgResult<
         CpkgLock {
             metadata: LockMetadata {
                 lockfile_version: 1,
-                generated_by: "cpkg 0.1.0".to_string(),
+                generated_by: "cpkg 0.2.0".to_string(),
             },
             packages: vec![],
         }
@@ -165,7 +145,6 @@ fn update_lockfile(name: &str, pkg: &LockedPackage, global: bool) -> CpkgResult<
     if global {
         locked.source = String::from("global");
     }
-
     lock.packages.push(locked);
 
     lockfile::save_lockfile(&lock_path, &lock)?;
@@ -173,10 +152,8 @@ fn update_lockfile(name: &str, pkg: &LockedPackage, global: bool) -> CpkgResult<
 }
 
 fn package_download_urls(pkg: &LockedPackage) -> Vec<String> {
-    // source format: "github.com/{owner}/{repo}"
     let repo_part = pkg.source.trim_start_matches("github.com/");
     let ver = pkg.version.to_string();
-    // Try v-prefixed first, then bare — some repos use v1.2.3, others 1.2.3
     vec![
         format!("https://github.com/{}/archive/refs/tags/v{}.tar.gz", repo_part, ver),
         format!("https://github.com/{}/archive/refs/tags/{}.tar.gz", repo_part, ver),
@@ -185,7 +162,6 @@ fn package_download_urls(pkg: &LockedPackage) -> Vec<String> {
 
 fn find_lib_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     use std::ffi::OsStr;
-    // Walk up to 5 levels deep, find first dir containing .a or .so files
     walkdir::WalkDir::new(pkg_dir)
         .max_depth(5)
         .into_iter()
@@ -198,17 +174,14 @@ fn find_lib_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
 }
 
 fn find_include_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    // 1. Standard "include/" directory
     let include = pkg_dir.join("include");
     if include.exists() && include.is_dir() {
         return Some(include);
     }
-    // 2. "src/" directory if it contains .h/.hpp files
     let src = pkg_dir.join("src");
     if src.exists() && src.is_dir() && dir_has_headers(&src) {
         return Some(src);
     }
-    // 3. Scan top-level for any directory with .h/.hpp files
     if let Ok(entries) = std::fs::read_dir(pkg_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -219,7 +192,6 @@ fn find_include_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
             }
         }
     }
-    // 4. Root has headers directly — link the whole package dir
     if dir_has_headers(pkg_dir) {
         return Some(pkg_dir.to_path_buf());
     }
@@ -238,9 +210,6 @@ fn dir_has_headers(dir: &std::path::Path) -> bool {
         })
 }
 
-/// Link include tree intelligently:
-/// - If src contains subdirs (e.g. include/nlohmann/), link each subdir directly → .cpkg/include/nlohmann/
-/// - If src contains header files directly (e.g. include/*.h), link the whole dir → .cpkg/include/<name>/
 fn link_include_tree(
     src: &std::path::Path,
     include_root: &std::path::Path,
@@ -251,17 +220,12 @@ fn link_include_tree(
 
     let has_direct_headers = entries.iter().any(|e| {
         let p = e.path();
-        p.is_file() && matches!(
-            p.extension().and_then(|x| x.to_str()),
-            Some("h") | Some("hpp")
-        )
+        p.is_file() && matches!(p.extension().and_then(|x| x.to_str()), Some("h") | Some("hpp"))
     });
 
     if has_direct_headers {
-        // Headers at root of include dir — link whole dir as <pkg_name>
         link::link_include(src, &include_root.join(pkg_name), strategy)?;
     } else {
-        // Only subdirs — link each one directly so #include <subdir/file.h> works
         for entry in &entries {
             let path = entry.path();
             if path.is_dir() {
