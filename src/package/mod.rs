@@ -28,12 +28,24 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
 
     let version_str = pkg.version.to_string();
 
-    // Construct download URL
-    let url = package_download_url(pkg);
-
-    // Download
+    // Construct download URL (try v-prefixed and bare tag formats)
+    let urls = package_download_urls(pkg);
     let tarball = layout.cache_dir().join(format!("{}-{}.tar.gz", name, &version_str));
-    fetch::download(&url, &tarball)?;
+
+    let mut downloaded = false;
+    let mut last_error = String::new();
+    for url in &urls {
+        match fetch::download(url, &tarball) {
+            Ok(()) => { downloaded = true; break; }
+            Err(e) => { last_error = e.to_string(); }
+        }
+    }
+    if !downloaded {
+        return Err(crate::errors::CpkgError::DownloadError(
+            format!("{}-{}", name, version_str),
+            last_error,
+        ));
+    }
 
     // Verify checksum (if available)
     if let Some(ref expected_hash) = pkg.sha256 {
@@ -46,17 +58,18 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
         extract::extract_tarball(&tarball, &install_dir)?;
     }
 
-    // Build the package
-    build::build_package(&install_dir)?;
+    // Build the package (non-fatal — header-only libs don't need it)
+    if let Err(e) = build::build_package(&install_dir) {
+        log::warn!("Build skipped: {}", e);
+    }
 
-    // Link includes
+    // Link includes — auto-detect if standard "include/" doesn't exist
     let strategy = paths::link_strategy();
-    for inc_dir in &pkg.include_dirs {
-        let src = install_dir.join(inc_dir);
-        let dst = layout.include_dir().join(name);
-        if src.exists() {
-            link::link_include(&src, &dst, strategy)?;
-        }
+    let dst = layout.include_dir().join(name);
+    if let Some(src) = find_include_dir(&install_dir) {
+        link::link_include(&src, &dst, strategy)?;
+    } else {
+        log::warn!("No headers found in {}", install_dir.display());
     }
 
     // Link libraries
@@ -157,15 +170,54 @@ fn update_lockfile(name: &str, pkg: &LockedPackage, global: bool) -> CpkgResult<
     Ok(())
 }
 
-fn package_download_url(pkg: &LockedPackage) -> String {
-    match pkg.name.as_str() {
-        "fmt" => format!(
-            "https://github.com/fmtlib/fmt/archive/refs/tags/{}.tar.gz",
-            pkg.version
-        ),
-        _ => format!(
-            "https://github.com/{0}/{0}/archive/refs/tags/{1}.tar.gz",
-            pkg.name, pkg.version,
-        ),
+fn package_download_urls(pkg: &LockedPackage) -> Vec<String> {
+    // source format: "github.com/{owner}/{repo}"
+    let repo_part = pkg.source.trim_start_matches("github.com/");
+    let ver = pkg.version.to_string();
+    // Try v-prefixed first, then bare — some repos use v1.2.3, others 1.2.3
+    vec![
+        format!("https://github.com/{}/archive/refs/tags/v{}.tar.gz", repo_part, ver),
+        format!("https://github.com/{}/archive/refs/tags/{}.tar.gz", repo_part, ver),
+    ]
+}
+
+fn find_include_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    // 1. Standard "include/" directory
+    let include = pkg_dir.join("include");
+    if include.exists() && include.is_dir() {
+        return Some(include);
     }
+    // 2. "src/" directory if it contains .h/.hpp files
+    let src = pkg_dir.join("src");
+    if src.exists() && src.is_dir() && dir_has_headers(&src) {
+        return Some(src);
+    }
+    // 3. Scan top-level for any directory with .h/.hpp files
+    if let Ok(entries) = std::fs::read_dir(pkg_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.file_name().map_or(false, |n| n != "build") {
+                if dir_has_headers(&path) {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    // 4. Root has headers directly — link the whole package dir
+    if dir_has_headers(pkg_dir) {
+        return Some(pkg_dir.to_path_buf());
+    }
+    None
+}
+
+fn dir_has_headers(dir: &std::path::Path) -> bool {
+    use std::ffi::OsStr;
+    walkdir::WalkDir::new(dir)
+        .max_depth(4)
+        .into_iter()
+        .flatten()
+        .any(|e| {
+            e.path().extension() == Some(OsStr::new("h"))
+                || e.path().extension() == Some(OsStr::new("hpp"))
+        })
 }
