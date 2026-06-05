@@ -63,21 +63,23 @@ pub fn install(name: &str, global: bool, version_override: Option<&str>) -> Cpkg
         log::warn!("Build skipped: {}", e);
     }
 
-    // Link includes — auto-detect if standard "include/" doesn't exist
+    // Link includes — symlink each subdir inside include/ directly into .cpkg/include/
+    // so `#include <nlohmann/json.hpp>` works, not `#include <nlohmann-json/nlohmann/json.hpp>`
     let strategy = paths::link_strategy();
-    let dst = layout.include_dir().join(name);
     if let Some(src) = find_include_dir(&install_dir) {
-        link::link_include(&src, &dst, strategy)?;
+        link_include_tree(&src, &layout.include_dir(), name, strategy)?;
     } else {
         log::warn!("No headers found in {}", install_dir.display());
     }
 
-    // Link libraries
-    if let Some(ref lib_dir) = pkg.lib_dir {
-        let pkg_lib = install_dir.join(lib_dir);
-        if pkg_lib.exists() {
-            link::link_libraries(&pkg_lib, &layout.lib_dir(), strategy)?;
-        }
+    // Link libraries — check pkg.lib_dir hint first, then auto-detect build output
+    let lib_src = pkg.lib_dir.as_ref()
+        .map(|d| install_dir.join(d))
+        .filter(|p| p.exists())
+        .or_else(|| find_lib_dir(&install_dir));
+
+    if let Some(lib_dir) = lib_src {
+        link::link_libraries(&lib_dir, &layout.lib_dir(), strategy)?;
     }
 
     // Update cpkg.toml (local only)
@@ -181,6 +183,20 @@ fn package_download_urls(pkg: &LockedPackage) -> Vec<String> {
     ]
 }
 
+fn find_lib_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::ffi::OsStr;
+    // Walk up to 5 levels deep, find first dir containing .a or .so files
+    walkdir::WalkDir::new(pkg_dir)
+        .max_depth(5)
+        .into_iter()
+        .flatten()
+        .find(|e| {
+            let ext = e.path().extension();
+            ext == Some(OsStr::new("a")) || ext == Some(OsStr::new("so"))
+        })
+        .and_then(|e| e.path().parent().map(|p| p.to_path_buf()))
+}
+
 fn find_include_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     // 1. Standard "include/" directory
     let include = pkg_dir.join("include");
@@ -220,4 +236,39 @@ fn dir_has_headers(dir: &std::path::Path) -> bool {
             e.path().extension() == Some(OsStr::new("h"))
                 || e.path().extension() == Some(OsStr::new("hpp"))
         })
+}
+
+/// Link include tree intelligently:
+/// - If src contains subdirs (e.g. include/nlohmann/), link each subdir directly → .cpkg/include/nlohmann/
+/// - If src contains header files directly (e.g. include/*.h), link the whole dir → .cpkg/include/<name>/
+fn link_include_tree(
+    src: &std::path::Path,
+    include_root: &std::path::Path,
+    pkg_name: &str,
+    strategy: crate::types::LinkStrategy,
+) -> CpkgResult<()> {
+    let entries: Vec<_> = std::fs::read_dir(src)?.filter_map(|e| e.ok()).collect();
+
+    let has_direct_headers = entries.iter().any(|e| {
+        let p = e.path();
+        p.is_file() && matches!(
+            p.extension().and_then(|x| x.to_str()),
+            Some("h") | Some("hpp")
+        )
+    });
+
+    if has_direct_headers {
+        // Headers at root of include dir — link whole dir as <pkg_name>
+        link::link_include(src, &include_root.join(pkg_name), strategy)?;
+    } else {
+        // Only subdirs — link each one directly so #include <subdir/file.h> works
+        for entry in &entries {
+            let path = entry.path();
+            if path.is_dir() {
+                let dir_name = path.file_name().unwrap();
+                link::link_include(&path, &include_root.join(dir_name), strategy)?;
+            }
+        }
+    }
+    Ok(())
 }
