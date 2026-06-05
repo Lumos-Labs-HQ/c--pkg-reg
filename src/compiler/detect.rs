@@ -3,14 +3,16 @@ use crate::types::{Compiler, CompilerName};
 use std::process::Command;
 use which::which;
 
+type CompilerCandidate = (&'static str, fn() -> CompilerName);
+
 #[cfg(target_family = "unix")]
-const CANDIDATES: &[(&str, fn() -> CompilerName)] = &[
+const CANDIDATES: &[CompilerCandidate] = &[
     ("g++",     || CompilerName::Gcc),
     ("clang++", || CompilerName::Clang),
 ];
 
 #[cfg(target_family = "windows")]
-const CANDIDATES: &[(&str, fn() -> CompilerName)] = &[
+const CANDIDATES: &[CompilerCandidate] = &[
     ("cl.exe",      || CompilerName::Msvc),
     ("g++.exe",     || CompilerName::Gcc),
     ("clang++.exe", || CompilerName::Clang),

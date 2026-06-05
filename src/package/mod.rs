@@ -185,11 +185,9 @@ fn find_include_dir(pkg_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     if let Ok(entries) = std::fs::read_dir(pkg_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() && path.file_name().map_or(false, |n| n != "build") {
-                if dir_has_headers(&path) {
+            if path.is_dir() && path.file_name().is_some_and(|n| n != "build") && dir_has_headers(&path) {
                     return Some(path);
                 }
-            }
         }
     }
     if dir_has_headers(pkg_dir) {
