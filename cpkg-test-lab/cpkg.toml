@@ -5,6 +5,21 @@ name = "unnamed"
 version = "0.1.0"
 
 [[dependencies]]
-name = "fmt"
+name = "llhttp"
+version = "*"
+global = false
+
+[[dependencies]]
+name = "Eigen"
+version = "*"
+global = false
+
+[[dependencies]]
+name = "ryu"
+version = "*"
+global = false
+
+[[dependencies]]
+name = "eigen"
 version = "*"
 global = false
