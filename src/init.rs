@@ -1,5 +1,4 @@
 use crate::errors::{CpkgError, CpkgResult};
-use crate::types::{CpkgToml, PackageMeta};
 use std::fs;
 use std::path::Path;
 
@@ -12,29 +11,17 @@ pub fn run(path_str: &str) -> CpkgResult<()> {
         return Ok(());
     }
 
-    let dir_name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unnamed");
+    let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unnamed");
 
-    let config = CpkgToml {
-        package: PackageMeta {
-            name: dir_name.to_string(),
-            version: "0.1.0".to_string(),
-            description: None,
-            authors: None,
-        },
-        dependencies: vec![],
-        scripts: vec![],
-        compiler: None,
-        cpp_standard: None,
-    };
+    let content = format!(
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n\n[[scripts]]\nname = \"build\"\ncommand = \"g++ -std=c++17 src/main.cpp -I.cpkg/include -L.cpkg/lib -o app\"\n\n[[scripts]]\nname = \"run\"\ncommand = \"./app\"\n",
+        dir_name
+    );
 
-    let content = toml::to_string_pretty(&config)
-        .map_err(|e| CpkgError::SerializeError("cpkg.toml".to_string(), e.to_string()))?;
+    fs::create_dir_all(dir.join("src"))
+        .map_err(|e| CpkgError::Io(e))?;
 
     fs::write(&config_path, content)?;
     println!("Created cpkg.toml in {}", dir.display());
-
     Ok(())
 }
