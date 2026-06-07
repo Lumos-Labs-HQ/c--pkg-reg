@@ -66,9 +66,14 @@ fn build_cmake(source_dir: &Path) -> CpkgResult<()> {
 }
 
 fn build_make(source_dir: &Path) -> CpkgResult<()> {
+    let parallelism = std::thread::available_parallelism()
+        .map(|n| format!("-j{}", n.get()))
+        .unwrap_or_else(|_| "-j1".to_string());
+
     let output = Command::new("make")
         .arg("-C")
         .arg(source_dir)
+        .arg(&parallelism)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
