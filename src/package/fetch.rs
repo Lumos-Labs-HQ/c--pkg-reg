@@ -1,10 +1,14 @@
 use crate::errors::CpkgResult;
+use sha2::{Digest, Sha256};
+use std::io::{self, Read, Write};
 use which::which;
 
-pub fn download(url: &str, dest: &std::path::Path) -> CpkgResult<()> {
+/// Download `url` to `dest`, streaming directly to disk.
+/// Returns the SHA-256 hex digest of the downloaded content.
+pub fn download(url: &str, dest: &std::path::Path) -> CpkgResult<String> {
     if dest.exists() {
         log::info!("Already cached: {}", dest.display());
-        return Ok(());
+        return crate::package::verify::compute(dest);
     }
 
     if let Some(parent) = dest.parent() {
@@ -12,7 +16,7 @@ pub fn download(url: &str, dest: &std::path::Path) -> CpkgResult<()> {
     }
 
     log::info!("Downloading {} ...", url);
-    let response = reqwest::blocking::get(url)
+    let mut response = reqwest::blocking::get(url)
         .map_err(|e| crate::errors::CpkgError::DownloadError(url.to_string(), e.to_string()))?;
 
     if !response.status().is_success() {
@@ -22,13 +26,19 @@ pub fn download(url: &str, dest: &std::path::Path) -> CpkgResult<()> {
         ));
     }
 
-    let bytes = response
-        .bytes()
-        .map_err(|e| crate::errors::CpkgError::DownloadError(url.to_string(), e.to_string()))?;
+    let mut file = std::fs::File::create(dest)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = response.read(&mut buf)
+            .map_err(|e| crate::errors::CpkgError::DownloadError(url.to_string(), e.to_string()))?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+        file.write_all(&buf[..n])?;
+    }
 
-    std::fs::write(dest, &bytes)?;
     log::info!("Downloaded to {}", dest.display());
-    Ok(())
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[allow(dead_code)]

@@ -40,8 +40,12 @@ fn build_cmake(source_dir: &Path) -> CpkgResult<()> {
         ));
     }
 
+    let parallelism = std::thread::available_parallelism()
+        .map(|n| n.get().to_string())
+        .unwrap_or_else(|_| "1".to_string());
+
     let build_output = Command::new("cmake")
-        .args(["--build", &build_dir.to_string_lossy()])
+        .args(["--build", &build_dir.to_string_lossy(), "--", &format!("-j{}", parallelism)])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

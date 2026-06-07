@@ -1,5 +1,6 @@
 use crate::errors::{CpkgError, CpkgResult};
 use crate::types::{Dependency, LockedPackage};
+use rayon::prelude::*;
 use semver::{Version, VersionReq};
 use std::collections::HashMap;
 
@@ -9,34 +10,28 @@ pub fn resolve_dependencies(
     deps: &[Dependency],
     _existing_lock: Option<&HashMap<String, LockedPackage>>,
 ) -> CpkgResult<Vec<LockedPackage>> {
-    // Load catalog once for the whole batch
     let catalog = load_vcpkg_catalog();
 
-    let mut resolved: HashMap<String, LockedPackage> = HashMap::new();
-    for dep in deps {
-        resolve_one(dep, &mut resolved, &catalog)?;
-    }
-    Ok(resolved.into_values().collect())
+    // Resolve all deps in parallel
+    let results: Vec<CpkgResult<LockedPackage>> = deps
+        .par_iter()
+        .map(|dep| resolve_one(dep, &catalog))
+        .collect();
+
+    results.into_iter().collect()
 }
 
 fn resolve_one(
     dep: &Dependency,
-    resolved: &mut HashMap<String, LockedPackage>,
-    catalog: &HashMap<String, String>, // name → github "owner/repo"
-) -> CpkgResult<()> {
-    if resolved.contains_key(&dep.name) {
-        return Ok(());
-    }
-
+    catalog: &HashMap<String, String>,
+) -> CpkgResult<LockedPackage> {
     let req = VersionReq::parse(&dep.version)
         .map_err(|e| CpkgError::VersionResolutionFailed(dep.name.clone(), e.to_string()))?;
 
     let (owner, repo) = if dep.name.contains('/') {
-        // Explicit "owner/repo" syntax — use as-is
         let slash = dep.name.find('/').unwrap();
         (dep.name[..slash].to_string(), dep.name[slash + 1..].to_string())
     } else {
-        // Look up in vcpkg catalog first, then fall back to GitHub search
         match catalog.get(&dep.name.to_lowercase()) {
             Some(slug) => {
                 let slash = slug.find('/').unwrap();
@@ -63,7 +58,7 @@ fn resolve_one(
         .cloned()
         .ok_or_else(|| CpkgError::VersionResolutionFailed(dep.name.clone(), dep.version.clone()))?;
 
-    resolved.insert(dep.name.clone(), LockedPackage {
+    Ok(LockedPackage {
         name: dep.name.clone(),
         version: best,
         source: format!("github.com/{}/{}", owner, repo),
@@ -72,8 +67,7 @@ fn resolve_one(
         include_dirs: vec!["include".into()],
         lib_files: vec![],
         lib_dir: None,
-    });
-    Ok(())
+    })
 }
 
 /// Download and parse the vcpkg catalog, returning a map of lowercase package name → "owner/repo".
